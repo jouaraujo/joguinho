@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desvia e Pega!</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #1a202c; color: white; overflow: hidden; }
+        .game-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+        
+        canvas { 
+            /* background-color will be overridden by JS drawing or image */
+            border-radius: 0.5rem; 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);
+            display: block; 
+        }
+        
+        #characterSelectionScreen {
+            display: flex; 
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            max-width: 500px; 
+        }
+
+        .character-selection img { 
+            cursor: pointer; 
+            border: 2px solid transparent;
+            transition: border-color 0.3s; 
+            width: 80px; 
+            height: 80px;
+            object-fit: cover; 
+            border-radius: 0.375rem; 
+            margin: 0.25rem; 
+        }
+        .character-selection img.selected { border-color: #48bb78; }
+
+        #characterGrid {
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); 
+            gap: 0.75rem; 
+            margin-bottom: 1rem; 
+            padding: 0.5rem; 
+            max-height: 220px; 
+            overflow-y: auto;  
+            background-color: rgba(45, 55, 72, 0.5); 
+            border-radius: 0.375rem;
+            width: 100%; 
+        }
+        #characterGrid::-webkit-scrollbar { width: 8px; }
+        #characterGrid::-webkit-scrollbar-track { background: #2d3748; border-radius: 10px; }
+        #characterGrid::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 10px; }
+        #characterGrid::-webkit-scrollbar-thumb:hover { background: #718096; }
+
+        .button {
+            background-color: #4a5568; color: white; font-weight: bold; padding: 0.75rem 1.5rem; border-radius: 0.375rem;
+            cursor: pointer; transition: background-color 0.3s; text-align: center; margin-top: 1rem;
+            border: none;
+        }
+        .button:hover { background-color: #2d3748; }
+        .button.level-button { margin-top: 0.5rem; padding: 0.5rem 1rem; } 
+        .button.level-button.selected { background-color: #38a169; border: 2px solid #68d391; }
+        .button-primary { background-color: #38a169; }
+        .button-primary:hover { background-color: #2f855a; }
+        .button-danger { background-color: #e53e3e; }
+        .button-danger:hover { background-color: #c53030; }
+        .button-secondary { background-color: #667eea; }
+        .button-secondary:hover { background-color: #5a67d8; }
+        .hidden { display: none !important; } 
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.7); display: flex;
+            align-items: center; justify-content: center; z-index: 100;
+        }
+        .modal-content {
+            background-color: #2d3748; padding: 2rem; border-radius: 0.5rem;
+            text-align: center; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #stats-bar {
+            display: flex; justify-content: space-around; align-items: center;
+            width: 100%; 
+            padding: 0.5rem; margin-bottom: 1rem;
+            background-color: #2d3748; border-radius: 0.375rem;
+        }
+        .stat-item { font-size: 1.1rem; font-weight: bold; }
+        .game-controls { display: flex; gap: 0.5rem; margin-top: 0.5rem; justify-content: center; }
+        #levelSelectionContainer { margin-bottom: 1rem; text-align: center; } 
+        #levelSelectionContainer h2 { margin-bottom: 0.5rem; font-size: 1.125rem; } 
+    </style>
+</head>
+<body>
+    <div id="gameContainer" class="game-container">
+        <div id="characterSelectionScreen"> 
+            <h1 class="text-2xl font-bold mb-4 text-center">Escolha seu Personagem</h1> 
+            <div id="characterGrid"> 
+            </div>
+
+            <div id="levelSelectionContainer">
+                <h2 class="text-lg font-semibold">Escolha o Nível:</h2> 
+                <div class="flex justify-center gap-2">
+                    <button class="button level-button" data-level="1">Fácil</button>
+                    <button class="button level-button" data-level="2">Médio</button>
+                    <button class="button level-button" data-level="3">Difícil</button>
+                </div>
+            </div>
+
+            <button id="startGameButton" class="button button-primary w-full max-w-xs mx-auto" disabled>Iniciar Jogo</button>
+        </div>
+
+        <div id="gameScreen" class="hidden"> 
+            <div id="stats-bar">
+                <div class="stat-item">Pontos: <span id="score">0</span></div>
+                <div class="stat-item">Vidas: <span id="lives">3</span></div>
+                <div class="stat-item">Nível: <span id="levelDisplay">1</span></div>
+                <div class="stat-item">Tempo: <span id="timer">60</span>s</div> 
+            </div>
+            <canvas id="gameCanvas"></canvas>
+            <div class="game-controls">
+                <button id="toggleMusicButton" class="button button-secondary">Parar Música</button>
+                <button id="backToMenuButton" class="button">Voltar ao Menu</button>
+            </div>
+        </div>
+
+        <div id="messageModal" class="modal hidden">
+            <div class="modal-content">
+                <h2 id="modalTitle" class="text-2xl font-bold mb-4"></h2>
+                <p id="modalMessage" class="mb-6"></p>
+                <div id="modalButtonsContainer" class="flex flex-col sm:flex-row justify-center gap-4">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Global Variables & DOM Elements ---
+        const characterSelectionScreen = document.getElementById('characterSelectionScreen');
+        const gameScreen = document.getElementById('gameScreen');
+        const characterGrid = document.getElementById('characterGrid');
+        const startGameButton = document.getElementById('startGameButton');
+        const backToMenuButton = document.getElementById('backToMenuButton');
+        const toggleMusicButton = document.getElementById('toggleMusicButton');
+        const levelButtons = document.querySelectorAll('.level-button');
+        
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const statsBar = document.getElementById('stats-bar'); 
+
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const gameLevelDisplay = document.getElementById('levelDisplay'); 
+        const timerDisplay = document.getElementById('timer');
+
+        const messageModal = document.getElementById('messageModal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalButtonsContainer = document.getElementById('modalButtonsContainer');
+
+        const characterImageUrls = [
+            'bia.jpg', 'hintz.jpg', 'joca.jpg',
+            'jou.jpg', 'lucas.jpg', 'yas.jpg'
+        ];
+        let selectedCharacterImage = null;
+        let playerImage = new Image();
+        const backgroundImage = new Image(); // For the game background
+
+        // --- Game State ---
+        let score = 0; lives = 3; currentLevel = 1; 
+        let chosenStartingLevel = null; 
+        let gameTimer = 60; 
+        let timerInterval = null; gameLoopInterval = null;
+        let isGameOver = false; isDragging = false;
+        let player = { x: 0, y: 0, width: 60, height: 60 }; 
+        let items = []; 
+        
+        const itemSize = 40;
+        const beerImage = new Image();
+        beerImage.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${itemSize}" height="${itemSize}"><text x="50" y="70" font-size="60" text-anchor="middle">🍺</text></svg>`);
+        const marijuanaImage = new Image();
+        marijuanaImage.src = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${itemSize}" height="${itemSize}"><text x="50" y="70" font-size="60" text-anchor="middle">🍁</text></svg>`);
+
+        // --- Audio ---
+        let musicSynth, beerSynth, marijuanaSynth;
+        let musicLoop; isMusicPlaying = true; 
+
+        async function setupAudio() {
+            if (Tone.context.state !== 'running') { await Tone.start(); }
+            console.log("Audio context started or already running");
+            musicSynth = new Tone.PolySynth(Tone.Synth, { oscillator: { type: "triangle8" }, envelope: { attack: 0.02, decay: 0.1, sustain: 0.3, release: 1 }, volume: -15 }).toDestination();
+            beerSynth = new Tone.Synth({ oscillator: { type: "sine" }, envelope: { attack: 0.005, decay: 0.1, sustain: 0, release: 0.1 }, volume: -5 }).toDestination();
+            marijuanaSynth = new Tone.Synth({ oscillator: { type: "square" }, envelope: { attack: 0.01, decay: 0.2, sustain: 0, release: 0.2 }, volume: -5 }).toDestination();
+            const melody = [ { time: "0:0", note: "C4", duration: "8n" }, { time: "0:1", note: "E4", duration: "8n" }, { time: "0:2", note: "G4", duration: "8n" }, { time: "0:3", note: "C5", duration: "8n" }, { time: "1:0", note: "G4", duration: "8n" }, { time: "1:1", note: "E4", duration: "8n" }, { time: "1:2", note: "C4", duration: "4n" }, ];
+            musicLoop = new Tone.Part((time, value) => { if (musicSynth) musicSynth.triggerAttackRelease(value.note, value.duration, time); }, melody).start(0);
+            musicLoop.loop = true; musicLoop.loopEnd = "2m";
+        }
+        function playMusic() { if (!isMusicPlaying || !musicLoop) return; if (Tone.Transport.state !== "started") { Tone.Transport.start(); } toggleMusicButton.textContent = "Parar Música"; }
+        function stopMusic(forceStop = false) { if (!forceStop && isMusicPlaying) return; if (Tone.Transport.state === "started") { Tone.Transport.stop(); if (musicSynth) musicSynth.releaseAll(); } toggleMusicButton.textContent = "Tocar Música"; }
+        function toggleBackgroundMusic() { isMusicPlaying = !isMusicPlaying; if (isMusicPlaying) { playMusic(); } else { stopMusic(true); } }
+        function playBeerSound() { if (beerSynth) beerSynth.triggerAttackRelease("C5", "8n"); }
+        function playMarijuanaSound() { if (marijuanaSynth) marijuanaSynth.triggerAttackRelease("F#3", "8n"); }
+
+        // --- Game Setup & Logic ---
+        function checkStartButtonValidity() { startGameButton.disabled = !(selectedCharacterImage && chosenStartingLevel !== null); }
+
+        function initCharacterSelection() {
+            characterGrid.innerHTML = ''; 
+            characterImageUrls.forEach((url, index) => {
+                const img = document.createElement('img');
+                img.className = 'character-selection-image'; 
+                img.src = url;
+                img.alt = `Personagem ${index + 1}`; 
+                img.dataset.charIndex = index;
+                img.onerror = () => { img.src = `https://placehold.co/80x80/cccccc/000000?text=Erro!`; console.error(`Error loading image: ${url}`); };
+                img.addEventListener('click', () => {
+                    document.querySelectorAll('#characterGrid img').forEach(i => i.classList.remove('selected'));
+                    img.classList.add('selected');
+                    selectedCharacterImage = url;
+                    checkStartButtonValidity();
+                });
+                characterGrid.appendChild(img); 
+            });
+
+            levelButtons.forEach(button => {
+                button.classList.remove('selected'); 
+                button.addEventListener('click', () => {
+                    levelButtons.forEach(btn => btn.classList.remove('selected'));
+                    button.classList.add('selected');
+                    chosenStartingLevel = parseInt(button.dataset.level);
+                    checkStartButtonValidity();
+                });
+            });
+            chosenStartingLevel = null; selectedCharacterImage = null; 
+            document.querySelectorAll('#characterGrid img').forEach(i => i.classList.remove('selected')); 
+            checkStartButtonValidity(); 
+            characterSelectionScreen.classList.remove('hidden');
+            gameScreen.classList.add('hidden');
+        }
+
+        function resizeCanvas() {
+            const maxWidth = 800; 
+            const maxHeight = 600; 
+            // const aspectRatio = maxWidth / maxHeight; 
+            
+            let newWidth = window.innerWidth * 0.85; 
+            let newHeight = window.innerHeight * 0.80; 
+            
+            newWidth = Math.min(newWidth, maxWidth);
+            newHeight = Math.min(newHeight, maxHeight);
+
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+            statsBar.style.width = newWidth + 'px'; 
+
+            if (player && !isGameOver && canvas.width > 0) { 
+                player.y = canvas.height - player.height - 10; 
+                player.x = Math.max(0, Math.min(player.x, canvas.width - player.width)); 
+            }
+        }
+
+        async function initializeGameSystems() { 
+            if (!musicSynth) { 
+                try { await setupAudio(); } 
+                catch (err) { console.error("Failed to setup audio:", err); showModal("Erro de Áudio", "Não foi possível iniciar o áudio. O jogo funcionará sem som.", [{text: "OK", action: hideModal}]); } 
+            }
+            // Load background image
+            // Ensure it tries to load 'ufsm.jpg' if src is not set or was the very old placeholder
+            if (!backgroundImage.src || 
+                backgroundImage.src.endsWith('image_0a5133.png') || 
+                !backgroundImage.src.endsWith('ufsm.jpg')) { 
+                backgroundImage.src = 'ufsm.jpg'; 
+                backgroundImage.onerror = () => {
+                    console.error("Background image 'ufsm.jpg' failed to load. Using fallback color.");
+                };
+            }
+        }
+
+        async function startGame() {
+            await initializeGameSystems(); 
+            if (!selectedCharacterImage || chosenStartingLevel === null) { showModal("Erro", "Por favor, selecione um personagem E um nível primeiro.", [{ text: "OK", action: hideModal }]); return; }
+            currentLevel = chosenStartingLevel; 
+            playerImage.src = selectedCharacterImage;
+            playerImage.onerror = () => { playerImage.src = 'https://placehold.co/60x60/cccccc/000000?text=P'; };
+            
+            characterSelectionScreen.classList.add('hidden'); 
+            gameScreen.classList.remove('hidden');
+            
+            resizeCanvas(); 
+            resetGameState(); 
+            startLevel();     
+            if (isMusicPlaying) playMusic(); else stopMusic(true);
+        }
+        
+        function resetGameState() { 
+            score = 0; lives = 3; isGameOver = false; items = [];
+            gameTimer = 60; 
+            if (canvas.width > 0) { player.x = canvas.width / 2 - player.width / 2; player.y = canvas.height - player.height - 10; }
+        }
+
+        function startLevel() { 
+            updateStatsDisplay(); 
+            isGameOver = false; items = []; 
+            if (timerInterval) clearInterval(timerInterval); timerInterval = setInterval(updateTimer, 1000);
+            if (gameLoopInterval) clearInterval(gameLoopInterval); gameLoopInterval = setInterval(gameLoop, 1000 / 60); 
+            hideModal(); if (isMusicPlaying) playMusic(); 
+        }
+
+        function updateTimer() { 
+            gameTimer--; 
+            timerDisplay.textContent = gameTimer; 
+            if (gameTimer <= 0 && !isGameOver) { levelCompleted(); } 
+        }
+
+        function levelCompleted() { 
+            isGameOver = true; clearInterval(gameLoopInterval); gameLoopInterval = null; clearInterval(timerInterval); timerInterval = null;
+            showModal( 
+                `Nível ${currentLevel} Concluído!`, 
+                `Parabéns você venceu a maconha do mal! Sua pontuação: ${score}`,
+                [ 
+                    { text: `Jogar Nível ${currentLevel} Novamente`, class:"button-primary", action: startGame }, 
+                    { text: "Escolher Personagem/Nível", action: goToCharacterSelection } 
+                ]
+            );
+        }
+
+        function handleGameOver() { 
+            isGameOver = true; clearInterval(gameLoopInterval); gameLoopInterval = null; clearInterval(timerInterval); timerInterval = null; stopMusic(true); 
+            showModal( `Fim de Jogo! (Nível ${currentLevel})`, `Você ficou sem vidas. Sua pontuação final: ${score}`, [ { text: `Tentar Nível ${currentLevel} Novamente`, class: "button-danger", action: startGame }, { text: "Escolher Personagem/Nível", action: goToCharacterSelection } ]);
+        }
+        
+        function updateStatsDisplay() { scoreDisplay.textContent = score; livesDisplay.textContent = lives; gameLevelDisplay.textContent = currentLevel; timerDisplay.textContent = gameTimer; }
+
+        function createItem() {
+            const type = Math.random() < levelSettings[currentLevel-1].beerChance ? 'beer' : 'marijuana';
+            const itemImg = type === 'beer' ? beerImage : marijuanaImage;
+            items.push({ type: type, x: Math.random() * (canvas.width - itemSize), y: -itemSize, width: itemSize, height: itemSize, speed: levelSettings[currentLevel-1].itemSpeed * (Math.random() * 0.5 + 0.75), image: itemImg });
+        }
+
+        const levelSettings = [ { itemSpeed: 2, spawnRate: 0.02, beerChance: 0.7 }, { itemSpeed: 3, spawnRate: 0.035, beerChance: 0.6 }, { itemSpeed: 4, spawnRate: 0.05, beerChance: 0.5 } ];
+
+        function updateItems() {
+            if (isGameOver) return; 
+            if (Math.random() < levelSettings[currentLevel-1].spawnRate) { createItem(); }
+            for (let i = items.length - 1; i >= 0; i--) {
+                const item = items[i]; item.y += item.speed;
+                if ( player.x < item.x + item.width && player.x + player.width > item.x && player.y < item.y + item.height && player.y + player.height > item.y ) {
+                    if (item.type === 'beer') { score += 10; playBeerSound(); } else { lives--; playMarijuanaSound(); if (lives <= 0) { handleGameOver(); return; } }
+                    items.splice(i, 1); updateStatsDisplay();
+                } else if (item.y > canvas.height) { items.splice(i, 1); }
+            }
+        }
+
+        function drawPlayer() { if (playerImage.complete && playerImage.naturalHeight !== 0) { ctx.drawImage(playerImage, player.x, player.y, player.width, player.height); } else { ctx.fillStyle = 'blue'; ctx.fillRect(player.x, player.y, player.width, player.height); } }
+        function drawItems() { items.forEach(item => { if (item.image.complete && item.image.naturalHeight !== 0) { ctx.drawImage(item.image, item.x, item.y, item.width, item.height); } else { ctx.fillStyle = item.type === 'beer' ? 'gold' : 'darkred'; ctx.fillRect(item.x, item.y, item.width, item.height); } }); }
+        
+        function gameLoop() { 
+            if (isGameOver) { return; } 
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas first
+
+            // Draw background image if loaded, otherwise a fallback color
+            if (backgroundImage.complete && backgroundImage.naturalHeight !== 0) {
+                ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+            } else {
+                // Fallback background color if image not loaded or error
+                ctx.fillStyle = '#2d3748'; // Default dark blueish gray
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+            
+            updateItems(); 
+            drawItems();   
+            drawPlayer();  
+        }
+
+        // --- Event Listeners ---
+        startGameButton.addEventListener('click', startGame); 
+        toggleMusicButton.addEventListener('click', toggleBackgroundMusic);
+        backToMenuButton.addEventListener('click', () => { showModal( "Voltar ao Menu?", "Seu progresso atual será perdido. Tem certeza?", [ { text: "Cancelar", action: hideModal }, { text: "Sim, Voltar", class: "button-danger", action: goToCharacterSelection } ]); });
+        
+        function goToCharacterSelection() { 
+            clearInterval(gameLoopInterval); gameLoopInterval = null; 
+            clearInterval(timerInterval); timerInterval = null; 
+            stopMusic(true); 
+            gameScreen.classList.add('hidden'); 
+            characterSelectionScreen.classList.remove('hidden'); 
+            hideModal(); 
+            initCharacterSelection(); 
+        }
+        let offsetX; 
+        function onPointerDown(e) { if (isGameOver) return; const rect = canvas.getBoundingClientRect(); const pointerX = e.clientX - rect.left; const pointerY = e.clientY - rect.top; if ( pointerX >= player.x && pointerX <= player.x + player.width && pointerY >= player.y && pointerY <= player.y + player.height ) { isDragging = true; offsetX = pointerX - player.x; canvas.setPointerCapture(e.pointerId); } }
+        function onPointerMove(e) { if (!isDragging || isGameOver) return; const rect = canvas.getBoundingClientRect(); const pointerX = e.clientX - rect.left; player.x = pointerX - offsetX; player.x = Math.max(0, player.x); player.x = Math.min(canvas.width - player.width, player.x); }
+        function onPointerUp(e) { if (isDragging) { isDragging = false; canvas.releasePointerCapture(e.pointerId); } }
+        canvas.addEventListener('pointerdown', onPointerDown); canvas.addEventListener('pointermove', onPointerMove); canvas.addEventListener('pointerup', onPointerUp); canvas.addEventListener('pointercancel', onPointerUp); 
+        
+        window.addEventListener('resize', resizeCanvas); 
+        
+        function showModal(title, message, buttonsConfig = []) { modalTitle.textContent = title; modalMessage.textContent = message; modalButtonsContainer.innerHTML = ''; buttonsConfig.forEach(btnConfig => { const button = document.createElement('button'); button.textContent = btnConfig.text; button.className = 'button'; if (btnConfig.class) { btnConfig.class.split(' ').forEach(cls => button.classList.add(cls)); } button.addEventListener('click', btnConfig.action); modalButtonsContainer.appendChild(button); }); messageModal.classList.remove('hidden'); }
+        function hideModal() { messageModal.classList.add('hidden'); }
+        
+        // --- Initial Setup ---
+        initCharacterSelection(); 
+    </script>
+</body>
+</html>
